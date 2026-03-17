@@ -2082,11 +2082,12 @@ select { cursor: pointer; }
     border-radius: var(--r-md);
     font-size: 12px;
     font-family: 'JetBrains Mono', monospace;
-    overflow-x: auto;
+    overflow: auto;
     margin-bottom: 10px;
     white-space: pre-wrap;
     word-break: break-word;
     border: 1px solid var(--border);
+    max-height: 150px;
 }
 .ai-actions {
     display: flex;
@@ -2158,9 +2159,15 @@ select { cursor: pointer; }
 
 /* === Responsive === */
 @media (max-width: 768px) {
-    main { flex-direction: column; }
-    .query-panel { width: 100% !important; min-width: 100%; max-width: 100%; max-height: 50vh; }
+    body { height: auto; min-height: 100vh; overflow: auto; -webkit-overflow-scrolling: touch; }
+    main { flex-direction: column; overflow: visible; min-height: 0; }
+    .query-panel { width: 100% !important; min-width: 100%; max-width: 100%; max-height: 40vh; overflow-y: auto; }
+    .results-panel { overflow: visible; min-height: 50vh; }
+    .results-table-wrapper { overflow: auto; -webkit-overflow-scrolling: touch; max-height: 60vh; }
     .panel-resizer { display: none; }
     .header-center { display: none; }
     .sidebar { width: 100%; }
+    .ai-section { flex-shrink: 0; }
+    .ai-sql-preview { max-height: 120px; overflow-y: auto; }
+    footer.status-bar { position: relative; }
 }
