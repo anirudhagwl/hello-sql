@@ -1497,7 +1497,7 @@ function parseSQL(sql) {
         mainTable: '', distinct: false, joins: [], conditions: [], groupBy: [], having: [],
         orderBy: [], aggregates: [], aggregateMode: false, functionMode: false, computedColumns: [],
         setOperation: '', setOperationQuery: '', windowFunctions: [], ctes: [],
-        selectedColumns: [], selectAll: true, limitValue: '', offsetValue: '', dialect: 'sqlite'
+        selectedColumns: [], selectAll: true, limitValue: '', offsetValue: ''
     };
 
     if (!remaining) return snapshot;
@@ -1607,8 +1607,7 @@ function updateSQL() {
     const sql = buildSQL();
     const preview = document.getElementById('sqlPreview');
     if (sql) {
-        const displaySQL = state.dialect !== 'sqlite' ? convertSQL(sql, state.dialect) : sql;
-        preview.innerHTML = highlightSQL(displaySQL);
+        preview.innerHTML = highlightSQL(sql);
     } else {
         preview.innerHTML = '<span class="sql-comment">-- Build your query using the options on the left</span>';
     }
@@ -1648,144 +1647,6 @@ function highlightSQL(sql) {
     escaped = escaped.replace(/\b(\d+\.?\d*)\b/g, '<span class="sql-number">$1</span>');
 
     return escaped;
-}
-
-// ============ SQL Dialect Conversion ============
-function setDialect(dialect) {
-    state.dialect = dialect;
-    document.querySelectorAll('.dialect-btn').forEach(b => {
-        b.classList.toggle('active', b.dataset.dialect === dialect);
-    });
-    const notice = document.getElementById('dialectNotice');
-    if (notice) notice.style.display = dialect === 'sqlite' ? 'none' : '';
-    updateSQL();
-}
-
-function convertSQL(sql, dialect) {
-    switch (dialect) {
-        case 'mysql': return convertToMySQL(sql);
-        case 'postgresql': return convertToPostgreSQL(sql);
-        case 'sqlserver': return convertToSQLServer(sql);
-        case 'oracle': return convertToOracle(sql);
-        case 'db2': return convertToDB2(sql);
-        case 'firebirdsql': return convertToFirebird(sql);
-        default: return sql;
-    }
-}
-
-function convertToMySQL(sql) {
-    let r = sql;
-    // SUBSTR -> SUBSTRING
-    r = r.replace(/\bSUBSTR\s*\(/gi, 'SUBSTRING(');
-    // STRFTIME('fmt', col) -> DATE_FORMAT(col, 'fmt')
-    r = r.replace(/\bSTRFTIME\s*\(\s*'([^']*)'\s*,\s*([^)]+)\)/gi, "DATE_FORMAT($2, '$1')");
-    // String concat || -> CONCAT()
-    r = r.replace(/(\b\w+(?:\.\w+)?)\s*\|\|\s*(\b\w+(?:\.\w+)?)/g, 'CONCAT($1, $2)');
-    // LIMIT/OFFSET syntax is the same in MySQL
-    return r;
-}
-
-function convertToPostgreSQL(sql) {
-    let r = sql;
-    // SUBSTR -> SUBSTRING
-    r = r.replace(/\bSUBSTR\s*\(/gi, 'SUBSTRING(');
-    // STRFTIME('fmt', col) -> TO_CHAR(col, 'fmt')
-    r = r.replace(/\bSTRFTIME\s*\(\s*'([^']*)'\s*,\s*([^)]+)\)/gi, "TO_CHAR($2, '$1')");
-    // INSTR(a, b) -> POSITION(b IN a)
-    r = r.replace(/\bINSTR\s*\(\s*([^,]+)\s*,\s*([^)]+)\)/gi, 'POSITION($2 IN $1)');
-    // LIMIT/OFFSET syntax is the same in PostgreSQL
-    return r;
-}
-
-function convertToSQLServer(sql) {
-    let r = sql;
-    // SUBSTR -> SUBSTRING
-    r = r.replace(/\bSUBSTR\s*\(/gi, 'SUBSTRING(');
-    // LENGTH -> LEN
-    r = r.replace(/\bLENGTH\s*\(/gi, 'LEN(');
-    // STRFTIME('fmt', col) -> FORMAT(col, 'fmt')
-    r = r.replace(/\bSTRFTIME\s*\(\s*'([^']*)'\s*,\s*([^)]+)\)/gi, "FORMAT($2, '$1')");
-    // INSTR(a, b) -> CHARINDEX(b, a)
-    r = r.replace(/\bINSTR\s*\(\s*([^,]+)\s*,\s*([^)]+)\)/gi, 'CHARINDEX($2, $1)');
-    // TRIM(x) -> LTRIM(RTRIM(x))
-    r = r.replace(/\bTRIM\s*\(\s*([^)]+)\)/gi, 'LTRIM(RTRIM($1))');
-    // String concat || -> +
-    r = r.replace(/\s*\|\|\s*/g, ' + ');
-    // LIMIT n OFFSET m -> OFFSET m ROWS FETCH NEXT n ROWS ONLY
-    const limitOffsetMatch = r.match(/\nLIMIT\s+(\d+)\s+OFFSET\s+(\d+)/i);
-    const limitOnlyMatch = r.match(/\nLIMIT\s+(\d+)/i);
-    if (limitOffsetMatch) {
-        const lim = limitOffsetMatch[1], off = limitOffsetMatch[2];
-        r = r.replace(/\nLIMIT\s+\d+\s+OFFSET\s+\d+/i, '');
-        if (!/ORDER BY/i.test(r)) r += '\nORDER BY (SELECT NULL)';
-        r += `\nOFFSET ${off} ROWS FETCH NEXT ${lim} ROWS ONLY`;
-    } else if (limitOnlyMatch) {
-        const lim = limitOnlyMatch[1];
-        r = r.replace(/\nLIMIT\s+\d+/i, '');
-        r = r.replace(/\bSELECT\b/i, `SELECT TOP ${lim}`);
-    }
-    return r;
-}
-
-function convertToOracle(sql) {
-    let r = sql;
-    // STRFTIME('fmt', col) -> TO_CHAR(col, 'fmt')
-    r = r.replace(/\bSTRFTIME\s*\(\s*'([^']*)'\s*,\s*([^)]+)\)/gi, "TO_CHAR($2, '$1')");
-    // LIMIT/OFFSET -> FETCH FIRST / OFFSET ROWS FETCH NEXT
-    const limitOffsetMatch = r.match(/\nLIMIT\s+(\d+)\s+OFFSET\s+(\d+)/i);
-    const limitOnlyMatch = r.match(/\nLIMIT\s+(\d+)/i);
-    if (limitOffsetMatch) {
-        const lim = limitOffsetMatch[1], off = limitOffsetMatch[2];
-        r = r.replace(/\nLIMIT\s+\d+\s+OFFSET\s+\d+/i, '');
-        r += `\nOFFSET ${off} ROWS FETCH NEXT ${lim} ROWS ONLY`;
-    } else if (limitOnlyMatch) {
-        const lim = limitOnlyMatch[1];
-        r = r.replace(/\nLIMIT\s+\d+/i, '');
-        r += `\nFETCH FIRST ${lim} ROWS ONLY`;
-    }
-    return r;
-}
-
-function convertToDB2(sql) {
-    let r = sql;
-    // STRFTIME -> TO_CHAR
-    r = r.replace(/\bSTRFTIME\s*\(\s*'([^']*)'\s*,\s*([^)]+)\)/gi, "TO_CHAR($2, '$1')");
-    // LIMIT/OFFSET -> FETCH FIRST / OFFSET ROWS FETCH NEXT
-    const limitOffsetMatch = r.match(/\nLIMIT\s+(\d+)\s+OFFSET\s+(\d+)/i);
-    const limitOnlyMatch = r.match(/\nLIMIT\s+(\d+)/i);
-    if (limitOffsetMatch) {
-        const lim = limitOffsetMatch[1], off = limitOffsetMatch[2];
-        r = r.replace(/\nLIMIT\s+\d+\s+OFFSET\s+\d+/i, '');
-        r += `\nOFFSET ${off} ROWS FETCH NEXT ${lim} ROWS ONLY`;
-    } else if (limitOnlyMatch) {
-        const lim = limitOnlyMatch[1];
-        r = r.replace(/\nLIMIT\s+\d+/i, '');
-        r += `\nFETCH FIRST ${lim} ROWS ONLY`;
-    }
-    return r;
-}
-
-function convertToFirebird(sql) {
-    let r = sql;
-    // SUBSTR -> SUBSTRING
-    r = r.replace(/\bSUBSTR\s*\(/gi, 'SUBSTRING(');
-    // LENGTH -> CHAR_LENGTH
-    r = r.replace(/\bLENGTH\s*\(/gi, 'CHAR_LENGTH(');
-    // STRFTIME not directly supported, approximate with EXTRACT
-    r = r.replace(/\bSTRFTIME\s*\(\s*'([^']*)'\s*,\s*([^)]+)\)/gi, "EXTRACT(YEAR FROM $2)");
-    // LIMIT n OFFSET m -> SELECT FIRST n SKIP m
-    const limitOffsetMatch = r.match(/\nLIMIT\s+(\d+)\s+OFFSET\s+(\d+)/i);
-    const limitOnlyMatch = r.match(/\nLIMIT\s+(\d+)/i);
-    if (limitOffsetMatch) {
-        const lim = limitOffsetMatch[1], off = limitOffsetMatch[2];
-        r = r.replace(/\nLIMIT\s+\d+\s+OFFSET\s+\d+/i, '');
-        r = r.replace(/\bSELECT\b/i, `SELECT FIRST ${lim} SKIP ${off}`);
-    } else if (limitOnlyMatch) {
-        const lim = limitOnlyMatch[1];
-        r = r.replace(/\nLIMIT\s+\d+/i, '');
-        r = r.replace(/\bSELECT\b/i, `SELECT FIRST ${lim}`);
-    }
-    return r;
 }
 
 // ============ Run Query ============
@@ -2035,7 +1896,6 @@ async function exportResults(format) {
 function copySQL() {
     let sql = state.mode === 'sql' ? document.getElementById('rawSqlInput').value : buildSQL();
     if (!sql) { toast('No SQL to copy', 'error'); return; }
-    if (state.dialect !== 'sqlite') sql = convertSQL(sql, state.dialect);
     navigator.clipboard.writeText(sql).then(() => toast('SQL copied to clipboard', 'info'));
 }
 
@@ -2196,8 +2056,6 @@ function resetQuery() {
     state.setOperationQuery = '';
     state.windowFunctions = [];
     state.ctes = [];
-    state.dialect = 'sqlite';
-
     document.getElementById('selectAll').checked = true;
     document.getElementById('limitValue').value = '';
     document.getElementById('offsetValue').value = '';
@@ -2209,9 +2067,6 @@ function resetQuery() {
     document.getElementById('setOpsType').value = '';
     document.getElementById('setOpsQueryWrap').style.display = 'none';
     document.getElementById('setOpsQuery').value = '';
-    document.querySelectorAll('.dialect-btn').forEach(b => b.classList.toggle('active', b.dataset.dialect === 'sqlite'));
-    const dialectNotice = document.getElementById('dialectNotice');
-    if (dialectNotice) dialectNotice.style.display = 'none';
 
     // Reset AI section
     state.aiGeneratedSQL = '';
@@ -2310,8 +2165,7 @@ function captureBuilderState() {
         selectedColumns: checkedCols,
         selectAll: document.getElementById('selectAll').checked,
         limitValue: document.getElementById('limitValue').value,
-        offsetValue: document.getElementById('offsetValue').value,
-        dialect: state.dialect
+        offsetValue: document.getElementById('offsetValue').value
     };
 }
 
@@ -2387,10 +2241,6 @@ function restoreBuilderState(snapshot, options = {}) {
     updateWhereCount();
     updateSQL();
 
-    // Restore dialect
-    if (snapshot.dialect && snapshot.dialect !== 'sqlite') {
-        setDialect(snapshot.dialect);
-    }
 
     if (options.switchMode !== false) setMode('visual');
 }
