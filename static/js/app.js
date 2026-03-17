@@ -1407,30 +1407,66 @@ function parseFromAndJoins(fromStr, snapshot) {
     }
     segments.push(fromStr.slice(lastIdx).trim());
 
-    // Main table — strip alias (e.g. "employees e" → "employees")
+    // Build alias → table mapping
+    const aliasMap = {};
+    const SQL_KEYWORDS = ['ON','WHERE','JOIN','INNER','LEFT','RIGHT','CROSS','GROUP','ORDER','HAVING','LIMIT','OFFSET','UNION','INTERSECT','EXCEPT','AND','OR','SET'];
+
+    // Main table — extract alias (e.g. "users u" or "users AS u" → table="users", alias "u"→"users")
     let mainTable = segments[0].trim();
     const mainParts = mainTable.split(/\s+/);
-    if (mainParts.length > 1 && state.tables.includes(mainParts[0])) {
+    if (mainParts.length === 3 && mainParts[1].toUpperCase() === 'AS') {
+        // "users AS u" form
         mainTable = mainParts[0];
+        aliasMap[mainParts[2].toLowerCase()] = mainTable;
+    } else if (mainParts.length === 2 && !SQL_KEYWORDS.includes(mainParts[1].toUpperCase())) {
+        // "users u" form
+        mainTable = mainParts[0];
+        aliasMap[mainParts[1].toLowerCase()] = mainTable;
     }
     snapshot.mainTable = mainTable;
 
-    // Joins
+    // Joins — extract aliases from join tables too
     for (let i = 1; i < segments.length; i++) {
         const joinStr = segments[i].trim();
-        const onMatch = joinStr.match(/^(\S+)(?:\s+\w+)?\s+ON\s+(\S+)\s*=\s*(\S+)$/i);
+        // Match: tableName [AS] [alias] ON col1 = col2
+        const onMatch = joinStr.match(/^(\w+)(?:\s+AS\s+(\w+)|\s+(\w+))?\s+ON\s+(\S+)\s*=\s*(\S+)$/i);
         if (onMatch) {
-            let joinTable = onMatch[1];
-            if (!state.tables.includes(joinTable)) {
-                const jp = joinTable.split(/\s+/);
-                if (state.tables.includes(jp[0])) joinTable = jp[0];
+            const joinTable = onMatch[1];
+            const joinAlias = onMatch[2] || onMatch[3]; // AS alias or plain alias
+            if (joinAlias && joinAlias.toUpperCase() !== 'ON' && !SQL_KEYWORDS.includes(joinAlias.toUpperCase())) {
+                aliasMap[joinAlias.toLowerCase()] = joinTable;
             }
-            snapshot.joins.push({ type: joinTypes[i - 1], table: joinTable, leftCol: onMatch[2], rightCol: onMatch[3] });
+            snapshot.joins.push({ type: joinTypes[i - 1], table: joinTable, leftCol: onMatch[4], rightCol: onMatch[5] });
         } else {
             const tbl = joinStr.split(/\s/)[0];
             snapshot.joins.push({ type: joinTypes[i - 1], table: tbl, leftCol: '', rightCol: '' });
         }
     }
+
+    // Store alias map on snapshot for later resolution
+    snapshot._aliasMap = aliasMap;
+}
+
+// Resolve alias references (e.g. "u.id" → "users.id") using alias map
+function resolveAlias(ref, aliasMap) {
+    if (!ref || !ref.includes('.')) return ref;
+    const dotIdx = ref.indexOf('.');
+    const prefix = ref.slice(0, dotIdx).toLowerCase();
+    const col = ref.slice(dotIdx + 1);
+    if (aliasMap[prefix]) {
+        return aliasMap[prefix] + '.' + col;
+    }
+    return ref;
+}
+
+// Strip table prefix from column ref if it matches mainTable (e.g. "users.id" → "id")
+function stripTablePrefix(ref, mainTable, joinTables) {
+    if (!ref || !ref.includes('.')) return ref;
+    const dotIdx = ref.indexOf('.');
+    const table = ref.slice(0, dotIdx);
+    const col = ref.slice(dotIdx + 1);
+    // Keep table prefix for join columns to avoid ambiguity, strip for main table only columns
+    return col;
 }
 
 function parseWhereClause(whereStr, snapshot) {
@@ -1597,6 +1633,68 @@ function parseSQL(sql) {
 
     // 10. Parse SELECT clause
     parseSelectClause(remaining, snapshot);
+
+    // 11. Resolve aliases → real table names throughout the snapshot
+    const aliasMap = snapshot._aliasMap || {};
+    if (Object.keys(aliasMap).length > 0) {
+        // Resolve selected columns: "u.id" → "users.id" or just "id"
+        // When joins exist, visual builder uses "table.column" format; without joins, plain "column"
+        const hasJoins = snapshot.joins.length > 0;
+        snapshot.selectedColumns = snapshot.selectedColumns.map(col => {
+            const resolved = resolveAlias(col, aliasMap);
+            if (hasJoins) {
+                // Keep table.column format — checkboxes use "employees.first_name" when joins exist
+                // If no table prefix, add main table prefix
+                if (!resolved.includes('.')) return snapshot.mainTable + '.' + resolved;
+                return resolved;
+            } else {
+                // Strip table prefix — checkboxes use plain "first_name" without joins
+                return resolved.includes('.') ? resolved.slice(resolved.indexOf('.') + 1) : resolved;
+            }
+        });
+
+        // Resolve JOIN ON columns: "u.id" → "users.id"
+        snapshot.joins.forEach(j => {
+            j.leftCol = resolveAlias(j.leftCol, aliasMap);
+            j.rightCol = resolveAlias(j.rightCol, aliasMap);
+        });
+
+        // Resolve WHERE conditions: "u.city" → "users.city" or "city"
+        snapshot.conditions.forEach(c => {
+            c.column = resolveAlias(c.column, aliasMap);
+        });
+
+        // Resolve ORDER BY: "u.name" → "users.name" or "name"
+        snapshot.orderBy.forEach(o => {
+            o.column = resolveAlias(o.column, aliasMap);
+        });
+
+        // Resolve GROUP BY
+        snapshot.groupBy = snapshot.groupBy.map(g => resolveAlias(g, aliasMap));
+
+        // Resolve HAVING
+        snapshot.having.forEach(h => {
+            h.column = resolveAlias(h.column, aliasMap);
+        });
+
+        // Resolve aggregates
+        snapshot.aggregates.forEach(a => {
+            a.column = resolveAlias(a.column, aliasMap);
+        });
+
+        // Resolve window functions
+        snapshot.windowFunctions.forEach(wf => {
+            wf.column = resolveAlias(wf.column, aliasMap);
+            wf.partitionBy = resolveAlias(wf.partitionBy, aliasMap);
+            wf.orderByCol = resolveAlias(wf.orderByCol, aliasMap);
+        });
+
+        // Resolve computed columns
+        snapshot.computedColumns.forEach(cc => {
+            cc.column = resolveAlias(cc.column, aliasMap);
+        });
+    }
+    delete snapshot._aliasMap;
 
     return snapshot;
 }
