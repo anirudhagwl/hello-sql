@@ -1184,6 +1184,425 @@ function buildSQL() {
     return sql;
 }
 
+// ============ SQL Parser (reverse: SQL text → visual builder state) ============
+
+function extractBalancedParens(str) {
+    let depth = 1, i = 0;
+    while (i < str.length && depth > 0) {
+        if (str[i] === '(') depth++;
+        else if (str[i] === ')') depth--;
+        if (depth > 0) i++;
+    }
+    return str.slice(0, i);
+}
+
+function splitTopLevel(str, delimiter) {
+    const parts = [];
+    let depth = 0, current = '', inSingle = false, inDouble = false;
+    for (let i = 0; i < str.length; i++) {
+        const ch = str[i];
+        if (ch === "'" && !inDouble) inSingle = !inSingle;
+        else if (ch === '"' && !inSingle) inDouble = !inDouble;
+        else if (!inSingle && !inDouble) {
+            if (ch === '(') depth++;
+            else if (ch === ')') depth--;
+        }
+        if (ch === delimiter && depth === 0 && !inSingle && !inDouble) {
+            parts.push(current);
+            current = '';
+        } else {
+            current += ch;
+        }
+    }
+    if (current.trim()) parts.push(current);
+    return parts;
+}
+
+function findTopLevelKeyword(sql, keyword) {
+    let depth = 0, inSingle = false, inDouble = false;
+    const upper = sql.toUpperCase();
+    const kw = keyword.toUpperCase();
+    for (let i = 0; i < sql.length; i++) {
+        const ch = sql[i];
+        if (ch === "'" && !inDouble) inSingle = !inSingle;
+        else if (ch === '"' && !inSingle) inDouble = !inDouble;
+        else if (!inSingle && !inDouble) {
+            if (ch === '(') depth++;
+            else if (ch === ')') depth--;
+        }
+        if (depth === 0 && !inSingle && !inDouble && upper.slice(i, i + kw.length) === kw) {
+            const before = i === 0 || /[\s\n]/.test(sql[i - 1]);
+            const after = i + kw.length >= sql.length || /[\s\n]/.test(sql[i + kw.length]);
+            if (before && after) return i;
+        }
+    }
+    return -1;
+}
+
+function splitWhereTokens(whereStr) {
+    const results = [];
+    let current = '', depth = 0, inSingle = false, inDouble = false;
+    let nextLogic = 'AND';
+    for (let i = 0; i < whereStr.length; i++) {
+        const ch = whereStr[i];
+        if (ch === "'" && !inDouble) inSingle = !inSingle;
+        else if (ch === '"' && !inSingle) inDouble = !inDouble;
+        else if (!inSingle && !inDouble) {
+            if (ch === '(') depth++;
+            else if (ch === ')') depth--;
+        }
+        if (depth === 0 && !inSingle && !inDouble) {
+            const rest = whereStr.slice(i).toUpperCase();
+            const andMatch = rest.match(/^\s+AND\s/);
+            if (andMatch) {
+                if (current.trim()) results.push({ logic: nextLogic, expr: current.trim() });
+                nextLogic = 'AND';
+                current = '';
+                i += andMatch[0].length - 1;
+                continue;
+            }
+            const orMatch = rest.match(/^\s+OR\s/);
+            if (orMatch) {
+                if (current.trim()) results.push({ logic: nextLogic, expr: current.trim() });
+                nextLogic = 'OR';
+                current = '';
+                i += orMatch[0].length - 1;
+                continue;
+            }
+        }
+        current += ch;
+    }
+    if (current.trim()) results.push({ logic: nextLogic, expr: current.trim() });
+    return results;
+}
+
+function parseSelectClause(str, snapshot) {
+    str = str.replace(/^\s*SELECT\s+/i, '');
+    if (/^DISTINCT\s+/i.test(str)) {
+        snapshot.distinct = true;
+        str = str.replace(/^DISTINCT\s+/i, '');
+    }
+    if (str.trim() === '*') { snapshot.selectAll = true; return; }
+
+    snapshot.selectAll = false;
+    const items = splitTopLevel(str, ',');
+    const AGG_FUNCS = ['COUNT', 'SUM', 'AVG', 'MIN', 'MAX'];
+    const STR_DATE_FUNCS = ['UPPER', 'LOWER', 'LENGTH', 'TRIM', 'SUBSTR', 'REPLACE', 'INSTR', 'DATE', 'TIME', 'DATETIME', 'STRFTIME'];
+
+    for (const item of items) {
+        const t = item.trim();
+
+        // Window function: FUNC(...) OVER (...) [AS alias]
+        const winMatch = t.match(/^(\w+)\(([^)]*)\)\s+OVER\s*\(([^)]*)\)(?:\s+AS\s+("?[^"]+?"?|\w+))?$/i);
+        if (winMatch) {
+            snapshot.windowFunctions.push(parseWindowFunctionExpr(winMatch));
+            continue;
+        }
+
+        // Aggregate: FUNC(col) [AS alias]
+        const aggMatch = t.match(/^(COUNT|SUM|AVG|MIN|MAX)\(([^)]*)\)(?:\s+AS\s+("?[^"]+?"?|\w+))?$/i);
+        if (aggMatch && AGG_FUNCS.includes(aggMatch[1].toUpperCase())) {
+            snapshot.aggregates.push({
+                func: aggMatch[1].toUpperCase(),
+                column: aggMatch[2].trim(),
+                alias: (aggMatch[3] || '').replace(/"/g, '')
+            });
+            snapshot.aggregateMode = true;
+            continue;
+        }
+
+        // String/Date function: FUNC(...) [AS alias]
+        const funcMatch = t.match(/^(\w+)\((.+)\)(?:\s+AS\s+("?[^"]+?"?|\w+))?$/i);
+        if (funcMatch && STR_DATE_FUNCS.includes(funcMatch[1].toUpperCase())) {
+            snapshot.computedColumns.push(parseComputedColumnExpr(funcMatch[1].toUpperCase(), funcMatch[2], funcMatch[3]));
+            snapshot.functionMode = true;
+            continue;
+        }
+
+        // Plain column (possibly with alias — strip it)
+        const aliasMatch = t.match(/^(.+?)\s+AS\s+.+$/i);
+        snapshot.selectedColumns.push(aliasMatch ? aliasMatch[1].trim() : t);
+    }
+}
+
+function parseWindowFunctionExpr(match) {
+    const func = match[1].toUpperCase();
+    const args = match[2].trim();
+    const overClause = match[3].trim();
+    const alias = (match[4] || '').replace(/"/g, '');
+    const wf = { func, column: '', alias, partitionBy: '', orderByCol: '', orderByDir: 'ASC', n: '', offset: '', defaultVal: '' };
+
+    if (['LAG', 'LEAD'].includes(func)) {
+        const parts = args.split(',').map(s => s.trim());
+        wf.column = parts[0] || '*';
+        if (parts[1]) wf.offset = parts[1];
+        if (parts[2]) wf.defaultVal = parts[2].replace(/'/g, '');
+    } else if (func === 'NTILE') {
+        wf.n = args || '4';
+    } else if (!['ROW_NUMBER', 'RANK', 'DENSE_RANK'].includes(func)) {
+        wf.column = args || '*';
+    }
+
+    const partMatch = overClause.match(/PARTITION\s+BY\s+(\S+)/i);
+    if (partMatch) wf.partitionBy = partMatch[1];
+    const orderMatch = overClause.match(/ORDER\s+BY\s+(\S+)\s*(ASC|DESC)?/i);
+    if (orderMatch) {
+        wf.orderByCol = orderMatch[1];
+        wf.orderByDir = (orderMatch[2] || 'ASC').toUpperCase();
+    }
+    return wf;
+}
+
+function parseComputedColumnExpr(fname, argsStr, aliasStr) {
+    const alias = (aliasStr || '').replace(/"/g, '').trim();
+    const cc = { func: fname, column: '', alias, params: {} };
+
+    if (fname === 'SUBSTR') {
+        const parts = argsStr.split(',').map(s => s.trim());
+        cc.column = parts[0]; cc.params.start = parts[1] || '1'; cc.params.length = parts[2] || '10';
+    } else if (fname === 'REPLACE') {
+        const parts = splitTopLevel(argsStr, ',').map(s => s.trim());
+        cc.column = parts[0];
+        cc.params.find = (parts[1] || '').replace(/^'|'$/g, '');
+        cc.params.replace_with = (parts[2] || '').replace(/^'|'$/g, '');
+    } else if (fname === 'STRFTIME') {
+        const parts = splitTopLevel(argsStr, ',').map(s => s.trim());
+        cc.params.format = (parts[0] || '').replace(/^'|'$/g, '');
+        cc.column = parts[1] || '';
+    } else if (fname === 'INSTR') {
+        const parts = splitTopLevel(argsStr, ',').map(s => s.trim());
+        cc.column = parts[0];
+        cc.params.search = (parts[1] || '').replace(/^'|'$/g, '');
+    } else {
+        cc.column = argsStr.trim();
+    }
+    return cc;
+}
+
+function parseFromAndJoins(fromStr, snapshot) {
+    const joinPattern = /\b(INNER\s+JOIN|LEFT\s+JOIN|RIGHT\s+JOIN|CROSS\s+JOIN|JOIN)\b/gi;
+    const joinTypes = [];
+    const segments = [];
+    let lastIdx = 0, m;
+
+    while ((m = joinPattern.exec(fromStr)) !== null) {
+        segments.push(fromStr.slice(lastIdx, m.index).trim());
+        let jt = m[1].toUpperCase().replace(/\s+/g, ' ');
+        if (jt === 'JOIN') jt = 'INNER JOIN';
+        joinTypes.push(jt);
+        lastIdx = m.index + m[1].length;
+    }
+    segments.push(fromStr.slice(lastIdx).trim());
+
+    // Main table — strip alias (e.g. "employees e" → "employees")
+    let mainTable = segments[0].trim();
+    const mainParts = mainTable.split(/\s+/);
+    if (mainParts.length > 1 && state.tables.includes(mainParts[0])) {
+        mainTable = mainParts[0];
+    }
+    snapshot.mainTable = mainTable;
+
+    // Joins
+    for (let i = 1; i < segments.length; i++) {
+        const joinStr = segments[i].trim();
+        const onMatch = joinStr.match(/^(\S+)(?:\s+\w+)?\s+ON\s+(\S+)\s*=\s*(\S+)$/i);
+        if (onMatch) {
+            let joinTable = onMatch[1];
+            if (!state.tables.includes(joinTable)) {
+                const jp = joinTable.split(/\s+/);
+                if (state.tables.includes(jp[0])) joinTable = jp[0];
+            }
+            snapshot.joins.push({ type: joinTypes[i - 1], table: joinTable, leftCol: onMatch[2], rightCol: onMatch[3] });
+        } else {
+            const tbl = joinStr.split(/\s/)[0];
+            snapshot.joins.push({ type: joinTypes[i - 1], table: tbl, leftCol: '', rightCol: '' });
+        }
+    }
+}
+
+function parseWhereClause(whereStr, snapshot) {
+    const tokens = splitWhereTokens(whereStr);
+    for (const token of tokens) {
+        const expr = token.expr.trim();
+        const cond = { column: '', operator: '=', value: '', logic: token.logic };
+
+        // IS NULL / IS NOT NULL
+        const nullMatch = expr.match(/^(\S+)\s+(IS\s+NOT\s+NULL|IS\s+NULL)$/i);
+        if (nullMatch) {
+            cond.column = nullMatch[1];
+            cond.operator = nullMatch[2].toUpperCase().replace(/\s+/g, ' ');
+            snapshot.conditions.push(cond); continue;
+        }
+        // IN / NOT IN
+        const inMatch = expr.match(/^(\S+)\s+(NOT\s+IN|IN)\s*\((.+)\)$/i);
+        if (inMatch) {
+            cond.column = inMatch[1];
+            cond.operator = inMatch[2].toUpperCase().replace(/\s+/g, ' ');
+            cond.value = inMatch[3].trim();
+            snapshot.conditions.push(cond); continue;
+        }
+        // BETWEEN
+        const betweenMatch = expr.match(/^(\S+)\s+BETWEEN\s+(.+)$/i);
+        if (betweenMatch) {
+            cond.column = betweenMatch[1]; cond.operator = 'BETWEEN'; cond.value = betweenMatch[2].trim();
+            snapshot.conditions.push(cond); continue;
+        }
+        // LIKE / NOT LIKE
+        const likeMatch = expr.match(/^(\S+)\s+(NOT\s+LIKE|LIKE)\s+'([^']*)'$/i);
+        if (likeMatch) {
+            cond.column = likeMatch[1];
+            cond.operator = likeMatch[2].toUpperCase().replace(/\s+/g, ' ');
+            cond.value = likeMatch[3];
+            snapshot.conditions.push(cond); continue;
+        }
+        // Standard comparison: col OP value
+        const compMatch = expr.match(/^(\S+)\s*(!=|<>|>=|<=|=|>|<)\s*(.+)$/);
+        if (compMatch) {
+            cond.column = compMatch[1];
+            cond.operator = compMatch[2] === '<>' ? '!=' : compMatch[2];
+            cond.value = compMatch[3].trim().replace(/^'|'$/g, '');
+            snapshot.conditions.push(cond); continue;
+        }
+    }
+}
+
+function parseHavingClause(havingStr, snapshot) {
+    const tokens = splitWhereTokens(havingStr);
+    for (const token of tokens) {
+        const m = token.expr.match(/^(COUNT|SUM|AVG|MIN|MAX)\(([^)]*)\)\s*(!=|<>|>=|<=|=|>|<)\s*(.+)$/i);
+        if (m) {
+            snapshot.having.push({
+                func: m[1].toUpperCase(), column: m[2].trim(),
+                operator: m[3] === '<>' ? '!=' : m[3], value: m[4].trim(), logic: token.logic
+            });
+        }
+    }
+}
+
+function parseOrderByClause(orderByStr, snapshot) {
+    const parts = splitTopLevel(orderByStr, ',');
+    for (const part of parts) {
+        const m = part.trim().match(/^(.+?)\s+(ASC|DESC)$/i);
+        if (m) {
+            snapshot.orderBy.push({ column: m[1].trim(), direction: m[2].toUpperCase() });
+        } else {
+            snapshot.orderBy.push({ column: part.trim(), direction: 'ASC' });
+        }
+    }
+}
+
+function parseSQL(sql) {
+    let remaining = sql.trim();
+    const snapshot = {
+        mainTable: '', distinct: false, joins: [], conditions: [], groupBy: [], having: [],
+        orderBy: [], aggregates: [], aggregateMode: false, functionMode: false, computedColumns: [],
+        setOperation: '', setOperationQuery: '', windowFunctions: [], ctes: [],
+        selectedColumns: [], selectAll: true, limitValue: '', offsetValue: '', dialect: 'sqlite'
+    };
+
+    if (!remaining) return snapshot;
+
+    // Strip trailing semicolon
+    remaining = remaining.replace(/;\s*$/, '').trim();
+
+    // 1. Extract CTEs
+    const withMatch = remaining.match(/^\s*WITH\s+/i);
+    if (withMatch) {
+        remaining = remaining.slice(withMatch[0].length);
+        while (true) {
+            const nameMatch = remaining.match(/^(\w+)\s+AS\s*\(/i);
+            if (!nameMatch) break;
+            const cteName = nameMatch[1];
+            remaining = remaining.slice(nameMatch[0].length);
+            const cteBody = extractBalancedParens(remaining);
+            remaining = remaining.slice(cteBody.length + 1); // +1 for closing paren
+            snapshot.ctes.push({ name: cteName, query: cteBody.trim() });
+            const commaMatch = remaining.match(/^\s*,\s*/);
+            if (commaMatch) { remaining = remaining.slice(commaMatch[0].length); }
+            else break;
+        }
+        remaining = remaining.trim();
+    }
+
+    // 2. Normalize whitespace (after CTE extraction to preserve CTE body)
+    remaining = remaining.replace(/\s+/g, ' ').trim();
+
+    // 3. Extract set operations
+    const setOps = ['UNION ALL', 'UNION', 'INTERSECT', 'EXCEPT'];
+    for (const op of setOps) {
+        const idx = findTopLevelKeyword(remaining, op);
+        if (idx !== -1) {
+            snapshot.setOperation = op;
+            snapshot.setOperationQuery = remaining.slice(idx + op.length).trim();
+            remaining = remaining.slice(0, idx).trim();
+            break;
+        }
+    }
+
+    // 4. Extract LIMIT / OFFSET (from end)
+    const limitMatch = remaining.match(/\bLIMIT\s+(\d+)(?:\s+OFFSET\s+(\d+))?\s*$/i);
+    if (limitMatch) {
+        snapshot.limitValue = limitMatch[1];
+        if (limitMatch[2]) snapshot.offsetValue = limitMatch[2];
+        remaining = remaining.slice(0, limitMatch.index).trim();
+    }
+
+    // 5. Extract ORDER BY
+    const orderByIdx = findTopLevelKeyword(remaining, 'ORDER BY');
+    if (orderByIdx !== -1) {
+        parseOrderByClause(remaining.slice(orderByIdx + 8).trim(), snapshot);
+        remaining = remaining.slice(0, orderByIdx).trim();
+    }
+
+    // 6. Extract HAVING
+    const havingIdx = findTopLevelKeyword(remaining, 'HAVING');
+    if (havingIdx !== -1) {
+        parseHavingClause(remaining.slice(havingIdx + 6).trim(), snapshot);
+        remaining = remaining.slice(0, havingIdx).trim();
+    }
+
+    // 7. Extract GROUP BY
+    const groupByIdx = findTopLevelKeyword(remaining, 'GROUP BY');
+    if (groupByIdx !== -1) {
+        snapshot.groupBy = remaining.slice(groupByIdx + 8).trim().split(',').map(s => s.trim());
+        remaining = remaining.slice(0, groupByIdx).trim();
+    }
+
+    // 8. Extract WHERE
+    const whereIdx = findTopLevelKeyword(remaining, 'WHERE');
+    if (whereIdx !== -1) {
+        parseWhereClause(remaining.slice(whereIdx + 5).trim(), snapshot);
+        remaining = remaining.slice(0, whereIdx).trim();
+    }
+
+    // 9. Extract FROM + JOINs
+    const fromIdx = findTopLevelKeyword(remaining, 'FROM');
+    if (fromIdx !== -1) {
+        parseFromAndJoins(remaining.slice(fromIdx + 4).trim(), snapshot);
+        remaining = remaining.slice(0, fromIdx).trim();
+    }
+
+    // 10. Parse SELECT clause
+    parseSelectClause(remaining, snapshot);
+
+    return snapshot;
+}
+
+function tryParseAndRestore(sql, options) {
+    try {
+        const snapshot = parseSQL(sql);
+        if (!snapshot.mainTable || !state.tables.includes(snapshot.mainTable)) return false;
+        for (const j of snapshot.joins) {
+            if (j.table && !state.tables.includes(j.table)) return false;
+        }
+        restoreBuilderState(snapshot, options);
+        return true;
+    } catch (e) {
+        console.warn('SQL parse failed:', e);
+        return false;
+    }
+}
+
 function updateSQL() {
     const sql = buildSQL();
     const preview = document.getElementById('sqlPreview');
@@ -1404,6 +1823,8 @@ async function runQuery() {
 
         if (state.mode === 'sql') {
             document.getElementById('sqlPreview').innerHTML = highlightSQL(sql);
+            // Silently sync visual builder state (stay in SQL editor mode)
+            tryParseAndRestore(sql, { switchMode: false });
         }
 
         renderResults(data, elapsed);
@@ -1737,9 +2158,15 @@ async function askAI() {
 
 function useAIQuery() {
     if (!state.aiGeneratedSQL) return;
-    setMode('sql');
-    document.getElementById('rawSqlInput').value = state.aiGeneratedSQL;
-    document.getElementById('sqlPreview').innerHTML = highlightSQL(state.aiGeneratedSQL);
+    const sql = state.aiGeneratedSQL;
+
+    // Try to parse SQL into visual builder; fall back to SQL editor mode
+    if (!tryParseAndRestore(sql)) {
+        setMode('sql');
+        document.getElementById('rawSqlInput').value = sql;
+        document.getElementById('sqlPreview').innerHTML = highlightSQL(sql);
+    }
+
     runQuery();
     // Clear AI section after using the query
     document.getElementById('aiInput').value = '';
@@ -1888,7 +2315,7 @@ function captureBuilderState() {
     };
 }
 
-function restoreBuilderState(snapshot) {
+function restoreBuilderState(snapshot, options = {}) {
     // Set table first
     const tableSelect = document.getElementById('mainTable');
     tableSelect.value = snapshot.mainTable;
@@ -1965,7 +2392,7 @@ function restoreBuilderState(snapshot) {
         setDialect(snapshot.dialect);
     }
 
-    setMode('visual');
+    if (options.switchMode !== false) setMode('visual');
 }
 
 function showSaveQueryDialog() {
