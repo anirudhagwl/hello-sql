@@ -33,10 +33,6 @@ const state = {
     ctes: [],
     savedQueries: JSON.parse(localStorage.getItem('hellosql_saved_queries') || '[]'),
     dialect: 'sqlite',
-    geminiKey: localStorage.getItem('hellosql_gemini_key') || '',
-    aiProvider: localStorage.getItem('hellosql_ai_provider') || 'ollama',
-    ollamaUrl: localStorage.getItem('hellosql_ollama_url') || 'http://localhost:11434',
-    ollamaModel: localStorage.getItem('hellosql_ollama_model') || 'qwen2.5-coder:7b',
     sampleData: {},
     aiGeneratedSQL: '',
 };
@@ -1637,32 +1633,9 @@ async function fetchSampleData() {
         if (!data.error) {
             state.sampleData = data;
             document.getElementById('aiSection').style.display = '';
-            // Initialize provider UI on load
-            setAIProvider(state.aiProvider);
         }
     } catch (err) {
         console.log('Failed to fetch sample data for AI:', err);
-    }
-}
-
-function setAIProvider(provider) {
-    state.aiProvider = provider;
-    localStorage.setItem('hellosql_ai_provider', provider);
-    document.querySelectorAll('.ai-provider-btn').forEach(b => {
-        b.classList.toggle('active', b.dataset.provider === provider);
-    });
-    // Show API key button only for Gemini; Ollama uses ⚙️ for settings
-    const keyBtn = document.getElementById('aiKeyBtn');
-    if (provider === 'gemini') {
-        keyBtn.style.display = '';
-        keyBtn.title = 'API Key Settings';
-        keyBtn.textContent = '⚙️ API Key';
-        keyBtn.onclick = showAPIKeyDialog;
-    } else {
-        keyBtn.style.display = '';
-        keyBtn.title = 'Ollama Settings';
-        keyBtn.textContent = '⚙️ Settings';
-        keyBtn.onclick = showOllamaDialog;
     }
 }
 
@@ -1712,13 +1685,6 @@ async function askAI() {
     const question = input.value.trim();
     if (!question) { toast('Please enter a question', 'error'); return; }
 
-    // Validate provider-specific requirements
-    if (state.aiProvider === 'gemini' && !state.geminiKey) {
-        showAPIKeyDialog();
-        toast('Please set your Gemini API key first', 'info');
-        return;
-    }
-
     const responseDiv = document.getElementById('aiResponse');
     const thinkingDiv = document.getElementById('aiThinking');
     const errorDiv = document.getElementById('aiError');
@@ -1731,13 +1697,22 @@ async function askAI() {
 
     try {
         const prompt = buildAIPrompt(question);
-        let sql = '';
-
-        if (state.aiProvider === 'ollama') {
-            sql = await askOllama(prompt);
-        } else {
-            sql = await askGemini(prompt);
+        const res = await fetch('/ai/ask', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                messages: [
+                    { role: 'system', content: 'You are a SQL expert. Return ONLY the raw SQL query, nothing else. No explanations, no markdown.' },
+                    { role: 'user', content: prompt }
+                ]
+            })
+        });
+        const data = await res.json();
+        if (!res.ok) {
+            const errMsg = typeof data.error === 'string' ? data.error : (data.error?.message || 'AI request failed.');
+            throw new Error(errMsg);
         }
+        let sql = data.choices?.[0]?.message?.content || '';
 
         // Clean up: strip markdown code fences if present
         sql = sql.trim();
@@ -1760,48 +1735,6 @@ async function askAI() {
     }
 }
 
-async function askGemini(prompt) {
-    const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${state.geminiKey}`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-            contents: [{ parts: [{ text: prompt }] }]
-        })
-    });
-    const data = await res.json();
-    if (!res.ok) {
-        throw new Error(data.error?.message || 'Gemini API request failed');
-    }
-    return data.candidates?.[0]?.content?.parts?.[0]?.text || '';
-}
-
-async function askOllama(prompt) {
-    const url = `${state.ollamaUrl}/v1/chat/completions`;
-    let res;
-    try {
-        res = await fetch(url, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-                model: state.ollamaModel,
-                messages: [
-                    { role: 'system', content: 'You are a SQL expert. Return ONLY the raw SQL query, nothing else. No explanations, no markdown.' },
-                    { role: 'user', content: prompt }
-                ],
-                temperature: 0.1,
-                stream: false
-            })
-        });
-    } catch (err) {
-        throw new Error(`Cannot connect to Ollama at ${state.ollamaUrl}. Make sure Ollama is running (ollama serve) and the model is pulled (ollama pull ${state.ollamaModel}).`);
-    }
-    const data = await res.json();
-    if (!res.ok) {
-        throw new Error(data.error?.message || data.error || 'Ollama request failed');
-    }
-    return data.choices?.[0]?.message?.content || '';
-}
-
 function useAIQuery() {
     if (!state.aiGeneratedSQL) return;
     setMode('sql');
@@ -1813,47 +1746,6 @@ function useAIQuery() {
 function copyAISQL() {
     if (!state.aiGeneratedSQL) { toast('No SQL to copy', 'error'); return; }
     navigator.clipboard.writeText(state.aiGeneratedSQL).then(() => toast('AI SQL copied to clipboard', 'info'));
-}
-
-function showAPIKeyDialog() {
-    document.getElementById('apiKeyModal').style.display = 'flex';
-    const input = document.getElementById('apiKeyInput');
-    input.value = state.geminiKey;
-    setTimeout(() => input.focus(), 100);
-}
-
-function closeAPIKeyModal() {
-    document.getElementById('apiKeyModal').style.display = 'none';
-}
-
-function saveAPIKey() {
-    const key = document.getElementById('apiKeyInput').value.trim();
-    state.geminiKey = key;
-    localStorage.setItem('hellosql_gemini_key', key);
-    closeAPIKeyModal();
-    toast(key ? 'API key saved' : 'API key cleared', 'success');
-}
-
-function showOllamaDialog() {
-    document.getElementById('ollamaModal').style.display = 'flex';
-    document.getElementById('ollamaUrlInput').value = state.ollamaUrl;
-    document.getElementById('ollamaModelInput').value = state.ollamaModel;
-    setTimeout(() => document.getElementById('ollamaModelInput').focus(), 100);
-}
-
-function closeOllamaModal() {
-    document.getElementById('ollamaModal').style.display = 'none';
-}
-
-function saveOllamaSettings() {
-    const url = document.getElementById('ollamaUrlInput').value.trim() || 'http://localhost:11434';
-    const model = document.getElementById('ollamaModelInput').value.trim() || 'qwen2.5-coder:7b';
-    state.ollamaUrl = url;
-    state.ollamaModel = model;
-    localStorage.setItem('hellosql_ollama_url', url);
-    localStorage.setItem('hellosql_ollama_model', model);
-    closeOllamaModal();
-    toast(`Ollama: ${model} @ ${url}`, 'success');
 }
 
 // ============ Reset ============

@@ -16,7 +16,33 @@
     <header>
         <div class="header-left">
             <div class="logo">
-                <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/><path d="M2 3l2.5 2.5M22 3l-2.5 2.5" stroke-linecap="round"/></svg>
+                <svg width="30" height="30" viewBox="0 0 64 64" xmlns="http://www.w3.org/2000/svg">
+                    <defs>
+                        <linearGradient id="dolphinGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+                            <stop offset="0%" stop-color="#c4b5fd"/>
+                            <stop offset="50%" stop-color="#a78bfa"/>
+                            <stop offset="100%" stop-color="#7c3aed"/>
+                        </linearGradient>
+                    </defs>
+                    <!-- Dolphin body - flying/leaping pose -->
+                    <path d="M8 42 C12 38, 18 28, 28 22 C34 18, 40 17, 46 20 C50 22, 53 26, 54 31 C55 36, 53 40, 48 42 C44 43, 40 41, 40 38 C40 36, 42 34, 44 35" fill="url(#dolphinGrad)" opacity="0.9"/>
+                    <!-- Dorsal fin -->
+                    <path d="M34 22 C32 14, 38 10, 42 14 C40 17, 38 20, 37 22" fill="url(#dolphinGrad)"/>
+                    <!-- Tail flukes -->
+                    <path d="M8 42 C4 38, 2 34, 5 32" fill="url(#dolphinGrad)" opacity="0.8"/>
+                    <path d="M8 42 C4 44, 2 48, 5 50" fill="url(#dolphinGrad)" opacity="0.8"/>
+                    <!-- Snout/beak -->
+                    <path d="M54 31 C57 28, 60 27, 62 28" stroke="url(#dolphinGrad)" stroke-width="2.5" stroke-linecap="round" fill="none"/>
+                    <!-- Eye -->
+                    <circle cx="50" cy="29" r="1.8" fill="#1e1b4b"/>
+                    <circle cx="50.3" cy="28.7" r="0.6" fill="#fff"/>
+                    <!-- Belly line -->
+                    <path d="M20 34 C28 36, 38 38, 46 36" stroke="#e9d5ff" stroke-width="0.8" fill="none" opacity="0.5"/>
+                    <!-- Water splash -->
+                    <circle cx="12" cy="48" r="1.2" fill="#a78bfa" opacity="0.4"/>
+                    <circle cx="17" cy="51" r="0.8" fill="#c4b5fd" opacity="0.3"/>
+                    <circle cx="8" cy="50" r="1" fill="#a78bfa" opacity="0.3"/>
+                </svg>
             </div>
             <div class="brand-text">
                 <h1>Hello SQL</h1>
@@ -390,13 +416,7 @@
             <div class="ai-section" id="aiSection" style="display:none;">
                 <div class="ai-header">
                     <span class="ai-label">&#129302; ASK AI</span>
-                    <div class="ai-header-right">
-                        <div class="ai-provider-toggle">
-                            <button class="ai-provider-btn active" data-provider="ollama" onclick="setAIProvider('ollama')">🦙 Ollama</button>
-                            <button class="ai-provider-btn" data-provider="gemini" onclick="setAIProvider('gemini')">✨ Gemini</button>
-                        </div>
-                        <button class="ai-key-btn" id="aiKeyBtn" onclick="showAPIKeyDialog()" title="API Key Settings" style="display:none;">&#9881;&#65039; API Key</button>
-                    </div>
+                    <span class="ai-powered-by">Powered by Qwen AI</span>
                 </div>
                 <div class="ai-input-row">
                     <input type="text" id="aiInput" class="ai-input" placeholder="What do you want out of this database? ASK AI" onkeydown="if(event.key==='Enter')askAI()">
@@ -565,38 +585,6 @@
             </div>
         </div>
 
-        <!-- API Key Modal -->
-        <div class="modal-overlay" id="apiKeyModal" style="display:none" onclick="if(event.target===this)closeAPIKeyModal()">
-            <div class="modal-card">
-                <h3>&#128273; Gemini API Key</h3>
-                <p style="font-size:13px;color:var(--text-secondary);margin-bottom:12px;">Your key is stored locally in this browser and never sent to our server. Get a free key from <a href="https://aistudio.google.com/apikey" target="_blank" style="color:var(--blue);">Google AI Studio</a>.</p>
-                <input type="password" id="apiKeyInput" placeholder="Enter your Gemini API key" style="width:100%;padding:8px 12px;border:1px solid var(--border-strong);border-radius:6px;font-size:14px;background:var(--bg-elevated);color:var(--text);">
-                <div class="modal-actions">
-                    <button class="btn btn-sm btn-ghost" onclick="closeAPIKeyModal()">Cancel</button>
-                    <button class="btn btn-sm btn-primary" onclick="saveAPIKey()">Save</button>
-                </div>
-            </div>
-        </div>
-
-        <!-- Ollama Settings Modal -->
-        <div class="modal-overlay" id="ollamaModal" style="display:none" onclick="if(event.target===this)closeOllamaModal()">
-            <div class="modal-card">
-                <h3>🦙 Ollama Settings</h3>
-                <p style="font-size:13px;color:var(--text-secondary);margin-bottom:12px;">Make sure Ollama is running locally. Install from <a href="https://ollama.com" target="_blank" style="color:var(--blue);">ollama.com</a>, then run: <code style="background:var(--bg-deep);padding:2px 6px;border-radius:4px;font-size:12px;">ollama run qwen2.5-coder:7b</code></p>
-                <div style="margin-bottom:10px;">
-                    <label style="font-size:12px;color:var(--text-secondary);display:block;margin-bottom:4px;">Server URL</label>
-                    <input type="text" id="ollamaUrlInput" placeholder="http://localhost:11434" style="width:100%;padding:8px 12px;border:1px solid var(--border-strong);border-radius:6px;font-size:14px;background:var(--bg-elevated);color:var(--text);">
-                </div>
-                <div style="margin-bottom:10px;">
-                    <label style="font-size:12px;color:var(--text-secondary);display:block;margin-bottom:4px;">Model</label>
-                    <input type="text" id="ollamaModelInput" placeholder="qwen2.5-coder:7b" style="width:100%;padding:8px 12px;border:1px solid var(--border-strong);border-radius:6px;font-size:14px;background:var(--bg-elevated);color:var(--text);">
-                </div>
-                <div class="modal-actions">
-                    <button class="btn btn-sm btn-ghost" onclick="closeOllamaModal()">Cancel</button>
-                    <button class="btn btn-sm btn-primary" onclick="saveOllamaSettings()">Save</button>
-                </div>
-            </div>
-        </div>
     </main>
 
     <!-- Status Bar -->

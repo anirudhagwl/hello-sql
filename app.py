@@ -2,10 +2,24 @@ import os
 import io
 import csv
 import json
+import ssl
 import sqlite3
 import tempfile
+import urllib.request
+import urllib.error
+import certifi
 from flask import Flask, render_template, request, jsonify, send_file, session
 from werkzeug.utils import secure_filename
+
+# Load .env file for local development
+env_path = os.path.join(os.path.dirname(__file__), '.env')
+if os.path.exists(env_path):
+    with open(env_path) as f:
+        for line in f:
+            line = line.strip()
+            if line and not line.startswith('#') and '=' in line:
+                key, val = line.split('=', 1)
+                os.environ.setdefault(key.strip(), val.strip())
 
 app = Flask(__name__)
 app.secret_key = os.environ.get('SECRET_KEY', os.urandom(24))
@@ -388,6 +402,48 @@ def sample_data():
         return jsonify(result)
     except Exception as e:
         return jsonify({'error': str(e)}), 400
+
+
+HF_TOKEN = os.environ.get('HF_TOKEN', '')
+HF_MODEL = 'Qwen/Qwen2.5-Coder-32B-Instruct'
+
+
+@app.route('/ai/ask', methods=['POST'])
+def ai_ask():
+    """Send question to Qwen AI via Hugging Face."""
+    data = request.get_json()
+    messages = data.get('messages', [])
+
+    url = 'https://router.huggingface.co/v1/chat/completions'
+    payload = json.dumps({
+        'model': HF_MODEL,
+        'messages': messages,
+        'temperature': 0.1,
+        'max_tokens': 1024
+    }).encode('utf-8')
+
+    req = urllib.request.Request(url, data=payload, headers={
+        'Content-Type': 'application/json',
+        'Authorization': f'Bearer {HF_TOKEN}'
+    })
+
+    try:
+        ssl_ctx = ssl.create_default_context(cafile=certifi.where())
+        with urllib.request.urlopen(req, timeout=60, context=ssl_ctx) as resp:
+            result = json.loads(resp.read().decode('utf-8'))
+            return jsonify(result)
+    except urllib.error.HTTPError as e:
+        error_body = e.read().decode('utf-8')
+        try:
+            error_json = json.loads(error_body)
+            msg = error_json.get('error', {})
+            if isinstance(msg, dict):
+                msg = msg.get('message', str(msg))
+            return jsonify({'error': msg}), e.code
+        except Exception:
+            return jsonify({'error': error_body}), e.code
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
 
 
 @app.route('/sample_db', methods=['POST'])
