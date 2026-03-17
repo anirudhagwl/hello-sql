@@ -1741,6 +1741,11 @@ function useAIQuery() {
     document.getElementById('rawSqlInput').value = state.aiGeneratedSQL;
     document.getElementById('sqlPreview').innerHTML = highlightSQL(state.aiGeneratedSQL);
     runQuery();
+    // Clear AI section after using the query
+    document.getElementById('aiInput').value = '';
+    document.getElementById('aiResponse').style.display = 'none';
+    document.getElementById('aiResult').style.display = 'none';
+    state.aiGeneratedSQL = '';
 }
 
 function copyAISQL() {
