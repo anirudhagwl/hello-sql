@@ -2010,6 +2010,11 @@ select { cursor: pointer; }
     color: var(--text);
     background: var(--bg-hover);
 }
+.ai-powered-by {
+    font-size: 11px;
+    color: var(--text-muted);
+    font-weight: 400;
+}
 .ai-input-row {
     display: flex;
     gap: 8px;
