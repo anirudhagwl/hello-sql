@@ -72,6 +72,19 @@ document.addEventListener('DOMContentLoaded', () => {
     document.getElementById('limitValue').addEventListener('input', updateSQL);
     document.getElementById('offsetValue').addEventListener('input', updateSQL);
 
+    // Sync SQL Editor typing to Generated SQL preview in real-time
+    document.getElementById('rawSqlInput').addEventListener('input', () => {
+        if (state.mode === 'sql') {
+            const sql = document.getElementById('rawSqlInput').value.trim();
+            const preview = document.getElementById('sqlPreview');
+            if (sql) {
+                preview.innerHTML = highlightSQL(sql);
+            } else {
+                preview.innerHTML = '<span class="sql-comment">-- Write your SQL query above</span>';
+            }
+        }
+    });
+
     // Keyboard shortcuts
     document.addEventListener('keydown', (e) => {
         // Ctrl+Enter: Run query
