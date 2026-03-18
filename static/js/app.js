@@ -1786,7 +1786,15 @@ async function runQuery() {
         const data = await res.json();
         const elapsed = Math.round(performance.now() - startTime);
 
-        if (data.error) { toast(data.error, 'error'); return; }
+        if (data.error) {
+            toast(data.error, 'error');
+            const panel = document.querySelector('.results-panel');
+            panel.classList.remove('query-success', 'query-error');
+            void panel.offsetWidth;
+            panel.classList.add('query-error');
+            panel.addEventListener('animationend', () => panel.classList.remove('query-error'), { once: true });
+            return;
+        }
 
         state.lastResult = data;
         state.sortCol = -1;
@@ -1802,8 +1810,22 @@ async function runQuery() {
         renderResults(data, elapsed);
         addToHistory(sql, data.row_count, elapsed);
         toast(`${data.row_count} rows returned in ${elapsed}ms`, 'success');
+
+        // Success flash effect
+        const panel = document.querySelector('.results-panel');
+        panel.classList.remove('query-success', 'query-error');
+        void panel.offsetWidth; // force reflow
+        panel.classList.add('query-success');
+        panel.addEventListener('animationend', () => panel.classList.remove('query-success'), { once: true });
     } catch (err) {
         toast('Failed to execute query', 'error');
+
+        // Error flash effect
+        const panel = document.querySelector('.results-panel');
+        panel.classList.remove('query-success', 'query-error');
+        void panel.offsetWidth;
+        panel.classList.add('query-error');
+        panel.addEventListener('animationend', () => panel.classList.remove('query-error'), { once: true });
     } finally {
         btn.innerHTML = `<svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><polygon points="5 3 19 12 5 21 5 3"/></svg> Run Query`;
         btn.disabled = false;
