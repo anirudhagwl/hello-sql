@@ -400,7 +400,7 @@
             </div>
 
             <!-- AI Section -->
-            <div class="ai-section" id="aiSection" style="display:none;">
+            <div class="ai-section" id="aiSection">
                 <div class="ai-header">
                     <span class="ai-label">&#129302; ASK AI</span>
                     <span class="ai-powered-by">Powered by Qwen AI</span>
@@ -472,25 +472,65 @@
             <!-- Results Table -->
             <div class="results-table-wrapper" id="resultsTableWrapper">
                 <div class="empty-state" id="emptyState">
-                    <div class="empty-visual">
-                        <svg width="44" height="44" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M12 2L2 7l10 5 10-5-10-5z"/><path d="M2 17l10 5 10-5"/><path d="M2 12l10 5 10-5"/></svg>
+                    <!-- Hero Section -->
+                    <div class="hero-badge">
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>
+                        SQL Made Simple
                     </div>
-                    <h3>Start exploring your data</h3>
-                    <p>Build SQL queries visually — no coding experience needed. Upload a database or try our sample to get started.</p>
+                    <h3>Build queries <span class="hero-gradient-text">without writing code</span></h3>
+                    <p>The visual SQL builder that turns clicks into queries. No syntax to memorize, no errors to debug — just your data, beautifully explored.</p>
+
+                    <!-- Feature Cards -->
+                    <div class="feature-cards">
+                        <div class="feature-card feature-card-ai">
+                            <div class="feature-card-icon ai-glow">
+                                <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M12 2L2 7l10 5 10-5-10-5z"/><path d="M2 17l10 5 10-5"/><path d="M2 12l10 5 10-5"/></svg>
+                            </div>
+                            <h4>AI-Powered</h4>
+                            <p>Describe what you want in plain English. AI writes the SQL for you instantly.</p>
+                            <span class="feature-tag">Ask AI above</span>
+                        </div>
+                        <div class="feature-card">
+                            <div class="feature-card-icon">
+                                <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/></svg>
+                            </div>
+                            <h4>Visual Builder</h4>
+                            <p>Point-and-click interface for SELECT, JOIN, WHERE, GROUP BY and more.</p>
+                        </div>
+                        <div class="feature-card">
+                            <div class="feature-card-icon">
+                                <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>
+                            </div>
+                            <h4>Instant Results</h4>
+                            <p>See your data in real-time. Export to CSV, JSON, XML or copy with one click.</p>
+                        </div>
+                    </div>
+
+                    <!-- Get Started Steps -->
+                    <div class="hero-divider">
+                        <span>Get started in 3 steps</span>
+                    </div>
                     <div class="empty-steps">
                         <div class="empty-step">
                             <div class="empty-step-num">1</div>
                             <div class="empty-step-label">Upload or load<br>a database</div>
                         </div>
+                        <div class="empty-step-arrow">
+                            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" opacity="0.3"><polyline points="9 18 15 12 9 6"/></svg>
+                        </div>
                         <div class="empty-step">
                             <div class="empty-step-num">2</div>
                             <div class="empty-step-label">Pick a table<br>and build a query</div>
+                        </div>
+                        <div class="empty-step-arrow">
+                            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" opacity="0.3"><polyline points="9 18 15 12 9 6"/></svg>
                         </div>
                         <div class="empty-step">
                             <div class="empty-step-num">3</div>
                             <div class="empty-step-label">Run and see<br>results instantly</div>
                         </div>
                     </div>
+
                     <div class="shortcut-hints">
                         <span class="kbd">Ctrl</span> + <span class="kbd">Enter</span> to run
                         <span class="hint-sep"></span>
