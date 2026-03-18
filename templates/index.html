@@ -392,9 +392,17 @@
             <div class="sql-bar">
                 <div class="sql-bar-header">
                     <span class="sql-bar-label">Generated SQL</span>
-                    <button class="icon-btn-sm" onclick="copySQL()" title="Copy SQL">
-                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
-                    </button>
+                    <div class="sql-bar-actions">
+                        <button class="icon-btn-sm" id="undoBtn" onclick="undoQuery()" title="Previous Query (Ctrl+Z)" disabled>
+                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="15 18 9 12 15 6"/></svg>
+                        </button>
+                        <button class="icon-btn-sm" id="redoBtn" onclick="redoQuery()" title="Next Query (Ctrl+Y)" disabled>
+                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="9 18 15 12 9 6"/></svg>
+                        </button>
+                        <button class="icon-btn-sm" onclick="copySQL()" title="Copy SQL">
+                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+                        </button>
+                    </div>
                 </div>
                 <pre id="sqlPreview" class="sql-highlight"><span class="sql-comment">-- Build your query using the options on the left</span></pre>
             </div>

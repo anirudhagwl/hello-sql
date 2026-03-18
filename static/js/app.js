@@ -35,6 +35,9 @@ const state = {
     dialect: 'sqlite',
     sampleData: {},
     aiGeneratedSQL: '',
+    // Undo/Redo query stack
+    queryStack: [],
+    queryStackIndex: -1,
 };
 
 // Migrate old history key
@@ -1809,6 +1812,7 @@ async function runQuery() {
 
         renderResults(data, elapsed);
         addToHistory(sql, data.row_count, elapsed);
+        pushQueryStack(sql, data, elapsed);
         toast(`${data.row_count} rows returned in ${elapsed}ms`, 'success');
 
         // Success flash effect
@@ -2277,6 +2281,64 @@ function clearHistory() {
     toast('History cleared', 'info');
 }
 
+// ============ Undo / Redo Query Stack ============
+function pushQueryStack(sql, data, elapsed) {
+    // If we navigated back and then run a new query, discard forward stack
+    if (state.queryStackIndex < state.queryStack.length - 1) {
+        state.queryStack = state.queryStack.slice(0, state.queryStackIndex + 1);
+    }
+    state.queryStack.push({
+        sql,
+        data: JSON.parse(JSON.stringify(data)),
+        elapsed,
+        builderState: captureBuilderState(),
+        mode: state.mode
+    });
+    // Keep stack reasonable
+    if (state.queryStack.length > 50) state.queryStack.shift();
+    state.queryStackIndex = state.queryStack.length - 1;
+    updateUndoRedoButtons();
+}
+
+function undoQuery() {
+    if (state.queryStackIndex <= 0) return;
+    state.queryStackIndex--;
+    restoreFromStack(state.queryStack[state.queryStackIndex]);
+}
+
+function redoQuery() {
+    if (state.queryStackIndex >= state.queryStack.length - 1) return;
+    state.queryStackIndex++;
+    restoreFromStack(state.queryStack[state.queryStackIndex]);
+}
+
+function restoreFromStack(entry) {
+    // Restore builder state
+    if (entry.builderState && entry.builderState.mainTable && state.tables.includes(entry.builderState.mainTable)) {
+        restoreBuilderState(entry.builderState, { switchMode: entry.mode === 'visual' });
+    }
+    if (entry.mode === 'sql') {
+        setMode('sql');
+        document.getElementById('rawSqlInput').value = entry.sql;
+    }
+    // Update generated SQL preview
+    document.getElementById('sqlPreview').innerHTML = highlightSQL(entry.sql);
+    // Restore results
+    state.lastResult = entry.data;
+    state.sortCol = -1;
+    state.sortDir = 'asc';
+    state.currentPage = 1;
+    renderResults(entry.data, entry.elapsed);
+    updateUndoRedoButtons();
+}
+
+function updateUndoRedoButtons() {
+    const undoBtn = document.getElementById('undoBtn');
+    const redoBtn = document.getElementById('redoBtn');
+    if (undoBtn) undoBtn.disabled = state.queryStackIndex <= 0;
+    if (redoBtn) redoBtn.disabled = state.queryStackIndex >= state.queryStack.length - 1;
+}
+
 // ============ Saved Queries ============
 function captureBuilderState() {
     const checkedCols = [...document.querySelectorAll('.col-cb:checked')].map(cb => cb.dataset.col);
@@ -2422,6 +2484,9 @@ function loadSavedQuery(id) {
 
     if (entry.builderState && entry.builderState.mainTable && state.tables.includes(entry.builderState.mainTable)) {
         restoreBuilderState(entry.builderState);
+        // Update the generated SQL preview
+        const sql = buildSQL();
+        document.getElementById('sqlPreview').innerHTML = highlightSQL(sql);
     } else {
         // Fallback to SQL mode
         setMode('sql');
@@ -2430,6 +2495,8 @@ function loadSavedQuery(id) {
     }
     toggleSavedQueries();
     toast(`Loaded "${entry.name}"`, 'info');
+    // Auto-run the query to show results
+    runQuery();
 }
 
 function deleteSavedQuery(id, e) {
