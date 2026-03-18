@@ -2102,7 +2102,7 @@ async function askAI() {
     const input = document.getElementById('aiInput');
     const question = input.value.trim();
     if (!question) { toast('Please enter a question', 'error'); return; }
-    if (!state.db) { toast('Please upload a database or load the sample database first', 'error'); return; }
+    if (state.tables.length === 0) { toast('Please upload a database or load the sample database first', 'error'); return; }
 
     const responseDiv = document.getElementById('aiResponse');
     const thinkingDiv = document.getElementById('aiThinking');
