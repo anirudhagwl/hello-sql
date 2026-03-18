@@ -707,5 +707,33 @@ def set_key():
         conn.close()
 
 
+# Health check endpoint for uptime monitors
+@app.route('/health')
+def health():
+    return jsonify({'status': 'ok'}), 200
+
+
+# Self-ping to keep Render free tier awake
+import threading
+
+def keep_alive():
+    """Ping the app every 14 minutes to prevent Render free tier from sleeping."""
+    import time
+    app_url = os.environ.get('RENDER_EXTERNAL_URL') or os.environ.get('APP_URL')
+    if not app_url:
+        return  # Only run in production with a known URL
+    while True:
+        time.sleep(14 * 60)  # 14 minutes
+        try:
+            urllib.request.urlopen(app_url + '/health', timeout=10)
+        except Exception:
+            pass
+
+# Start keep-alive thread in production
+if os.environ.get('RENDER') or os.environ.get('RENDER_EXTERNAL_URL'):
+    t = threading.Thread(target=keep_alive, daemon=True)
+    t.start()
+
+
 if __name__ == '__main__':
     app.run(debug=True, port=5001)
