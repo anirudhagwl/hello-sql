@@ -393,11 +393,13 @@
                 <div class="sql-bar-header">
                     <span class="sql-bar-label">Generated SQL</span>
                     <div class="sql-bar-actions">
-                        <button class="icon-btn-sm" id="undoBtn" onclick="undoQuery()" title="Previous Query (Ctrl+Z)" disabled>
-                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="15 18 9 12 15 6"/></svg>
+                        <button class="nav-query-btn" id="undoBtn" onclick="undoQuery()" title="Previous Query" disabled>
+                            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="15 18 9 12 15 6"/></svg>
+                            Last Query
                         </button>
-                        <button class="icon-btn-sm" id="redoBtn" onclick="redoQuery()" title="Next Query (Ctrl+Y)" disabled>
-                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="9 18 15 12 9 6"/></svg>
+                        <button class="nav-query-btn" id="redoBtn" onclick="redoQuery()" title="Next Query" disabled>
+                            Next Query
+                            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="9 18 15 12 9 6"/></svg>
                         </button>
                         <button class="icon-btn-sm" onclick="copySQL()" title="Copy SQL">
                             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
@@ -411,7 +413,7 @@
             <div class="ai-section" id="aiSection">
                 <div class="ai-compact-row">
                     <span class="ai-label">&#129302; Ask AI</span>
-                    <input type="text" id="aiInput" class="ai-input" placeholder="Describe what you want in plain English..." onkeydown="if(event.key==='Enter')askAI()">
+                    <input type="text" id="aiInput" class="ai-input" placeholder="What do you want to know from this Database?" onkeydown="if(event.key==='Enter')askAI()">
                     <button class="btn-ai-send" onclick="askAI()">Ask &#10024;</button>
                     <span class="ai-powered-by">Qwen AI</span>
                 </div>
