@@ -401,13 +401,11 @@
 
             <!-- AI Section -->
             <div class="ai-section" id="aiSection">
-                <div class="ai-header">
-                    <span class="ai-label">&#129302; ASK AI</span>
-                    <span class="ai-powered-by">Powered by Qwen AI</span>
-                </div>
-                <div class="ai-input-row">
-                    <input type="text" id="aiInput" class="ai-input" placeholder="What do you want out of this database? ASK AI" onkeydown="if(event.key==='Enter')askAI()">
+                <div class="ai-compact-row">
+                    <span class="ai-label">&#129302; Ask AI</span>
+                    <input type="text" id="aiInput" class="ai-input" placeholder="Describe what you want in plain English..." onkeydown="if(event.key==='Enter')askAI()">
                     <button class="btn-ai-send" onclick="askAI()">Ask &#10024;</button>
+                    <span class="ai-powered-by">Qwen AI</span>
                 </div>
                 <div id="aiResponse" class="ai-response" style="display:none;">
                     <div id="aiThinking" class="ai-thinking" style="display:none;">
