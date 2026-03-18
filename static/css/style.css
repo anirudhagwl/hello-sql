@@ -1122,7 +1122,30 @@ select { cursor: pointer; }
     gap: 4px;
 }
 
-.sql-bar-actions .icon-btn-sm:disabled {
+.nav-query-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    padding: 4px 10px;
+    border: 1px solid var(--border);
+    border-radius: var(--r-full);
+    background: transparent;
+    color: var(--text-muted);
+    font-family: var(--font);
+    font-size: 10px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.2s var(--ease);
+    white-space: nowrap;
+}
+
+.nav-query-btn:hover {
+    background: rgba(255, 255, 255, 0.06);
+    color: var(--text);
+    border-color: var(--border-strong);
+}
+
+.nav-query-btn:disabled {
     opacity: 0.25;
     cursor: default;
     pointer-events: none;
