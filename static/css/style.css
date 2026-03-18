@@ -1116,6 +1116,18 @@ select { cursor: pointer; }
     color: var(--text-muted);
 }
 
+.sql-bar-actions {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+}
+
+.sql-bar-actions .icon-btn-sm:disabled {
+    opacity: 0.25;
+    cursor: default;
+    pointer-events: none;
+}
+
 .sql-highlight {
     font-family: var(--font-mono);
     font-size: 13px;
